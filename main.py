@@ -185,13 +185,18 @@ for deviceType in deviceTypes:
             else:
                 print('no assignement actions')
         
-        print("Checking to see if Mosyle needs an updated asset tag")
-        #if there is no asset tag on mosyle, add the snipeit asset tag
-        if(sn['asset_tag'] == None or sn['asset_tag'] == "" or sn['asset_tag'] != asset['rows'][0]['asset_tag']):
-            print('update the mosyle asset tag of device ', sn.get('serial_number'), 'to ', asset.get('rows',[])[0].get('asset_tag',""))
-            mosyle.setAssetTag(sn['serial_number'], asset.get('rows',[])[0].get('asset_tag',""))
+        # Safely get asset tag from Snipe asset
+        asset_tag = None
+        if 'rows' in asset and isinstance(asset['rows'], list) and len(asset['rows']) > 0:
+            asset_tag = asset['rows'][0].get('asset_tag')
+
+        # Compare and update if needed
+        if not sn.get('asset_tag') or sn['asset_tag'] != asset_tag:
+            print(f"Update the Mosyle asset tag of device {sn.get('serial_number')} to {asset_tag}")
+            if asset_tag:
+                mosyle.setAssetTag(sn['serial_number'], asset_tag)
         else:
-            print('Mosyle already has an assest tag of: ', sn['asset_tag'])
+            print(f"Mosyle already has an asset tag of: {sn['asset_tag']}")
     
     print('Finished with OS: ', deviceType)
     print('')
