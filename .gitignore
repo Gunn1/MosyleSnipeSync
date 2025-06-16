@@ -1,1 +1,8 @@
 settings.ini
+.env
+/env
+/__pychache__
+.DS_Store
+__pycache__/snipe.cpython-313.pyc
+
+__pycache__/mosyle.cpython-313.pyc

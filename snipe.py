@@ -1,4 +1,3 @@
-from cgi import print_arguments
 import mimetypes
 from unittest import result
 import requests
@@ -38,40 +37,37 @@ class Snipe:
 
     def listAllModels(self):
         print('requesting all apple models')
-        return self.snipeItRequest("GET","/models", params = {"limit": "50", "offset": "0", "sort": "created_at", "order": "asc"})
+        return self.snipeItRequest("GET","/models", params = {"limit": "200", "offset": "0", "sort": "created_at", "order": "asc"})
 
     def searchModel(self, model):
         print('Requesting Snipe Model list')
-        result = self.snipeItRequest("GET", "/models", params = {"limit": "50", "offset": "0", "search": model, "sort": "created_at", "order": "asc"})
-        print(result.json())
+        result = self.snipeItRequest("GET", "/models", params={
+            "limit": "50", "offset": "0", "search": model, "sort": "created_at", "order": "asc"
+        })
         jsonResult = result.json()
-        #Did the search return a result?
-        if jsonResult['total'] == 0:
-            print("model was not found")
-        else:
-            print("the model was found")
 
-            #does the model have a picture?
-            if jsonResult['rows'][0]['image'] is None:
-                print("the model does not have a picture. Let, set one")
-                #No, it does not. Let's update it.
-                imageResponse = self.getImageForModel(model);
-                print("imageResponse", imageResponse)
-                if(imageResponse == False):
-                    print("loading the image failed..")
+        if jsonResult['total'] == 0:
+            print("Model was not found.")
+        else:
+            print("Model was found.")
+            model_data = jsonResult['rows'][0]
+
+            if model_data['image'] is None:
+                print("The model does not have a picture. Let's set one.")
+                image_data_url = self.getImageForModel(model)
+
+                if not image_data_url:
+                    print("Failed to get image.")
                 else:
                     payload = {
-                        "image": imageResponse
+                        "image": image_data_url
                     }
-                    self.updateModel(str(jsonResult['rows'][0]['id']), payload)
-
-
+                    self.updateModel(str(model_data['id']), payload)
             else:
-                print('image already set.');
-            
-        #print(result)
+                print("Image already set.")
+
         return result
-    
+
     def createModel(self, model):
 
         imageResponse = self.getImageForModel(model);
@@ -83,7 +79,7 @@ class Snipe:
             "category_id": self.macos_category_id,
             "manufacturer_id": self.manufacturer_id,
             "model_number": model,
-            "fieldset_id": self.mac_os_fieldset_id,
+            "fieldset_id": self.macos_fieldset_id,
             "image":imageResponse
         }
 
@@ -97,14 +93,10 @@ class Snipe:
         print(payload);
         payload['status_id'] = 2
         payload['model_id'] = model
+        payload['asset_tag'] = payload['serial']
         
-        asset = self.snipeItRequest("POST", "/hardware", json = payload).json()
         #print(asset)
-        payload = {
-            "serial": payload['serial']
-        }
-        return self.snipeItRequest("PATCH", "/hardware/" + str(asset['payload']['id']), json = payload)
-
+        return self.snipeItRequest("POST", "/hardware", json = payload).json()
 
     def assignAsset(self, user, asset_id):
         print('Assigning asset '+str(asset_id)+' to user '+user)
@@ -128,10 +120,16 @@ class Snipe:
         print('Unassigning asset '+str(asset_id))
         return self.snipeItRequest("POST", "/hardware/" + str(asset_id) + "/checkin")
 
-    def updateAsset(self, asset_id, payload):
-        print('Updating asset '+str(asset_id))
-        #print(payload)
-        return self.snipeItRequest("PATCH", "/hardware/" + str(asset_id), json = payload)
+    def updateAsset(self, asset_id, payload, model_id=None):
+        print('Updating asset ' + str(asset_id))
+        payload = dict(payload)  # Make a copy to avoid mutating the original
+        payload.pop('serial', None)
+
+        if model_id:
+            payload['model_id'] = model_id  # Include model assignment
+
+        return self.snipeItRequest("PATCH", "/hardware/" + str(asset_id), json=payload)
+
 
     def createMobileModel(self, model):
         print('creating new mobile Model')
@@ -171,7 +169,7 @@ class Snipe:
             #"asset_tag": asset,
             "name": payload['device_name'],
             "serial": payload['serial_number'],
-            "_snipeit_bluetooth_mac_address_8": payload['bluetooth_mac_address']
+            "_snipeit_bluetooth_mac_address_11": payload['bluetooth_mac_address']
         }
         
         #lets get the proper os name
@@ -192,10 +190,10 @@ class Snipe:
             os = "Not Known"
         
                 
-        finalPayload['_snipeit_operating_system_3'] = os
+        finalPayload['_snipeit_os_info_6'] = os
         
         #set os version
-        finalPayload['_snipeit_operating_system_version_4'] = payload['osversion']
+        finalPayload['_snipeit_osversion_12'] = payload['osversion']
         
         #macaddress stuff
         wifiMac = payload['wifi_mac_address']
@@ -209,50 +207,121 @@ class Snipe:
         
         return finalPayload
 
-    def snipeItRequest(self, type, url, params = None, json = None):
-        self.request_count += 1
-        if(self.request_count >= self.rate_limit):
-            print(Fore.YELLOW + "Max requests per minute reached. Sleeping for 60 seconds")
-            time.sleep(60) 
-            self.request_count = 0
-            print(Fore.GREEN + "Request count has been reset", "Continuing", Style.RESET_ALL)
+    def snipeItRequest(self, type, url, params=None, json=None):
+        max_retries = 5
+        retry_delay = 60  # seconds
 
+        for attempt in range(max_retries):
+            if self.request_count >= self.rate_limit:
+                print(Fore.YELLOW + "Max requests per minute reached. Sleeping for 60 seconds..." + Style.RESET_ALL)
+                time.sleep(60)
+                self.request_count = 0
 
-        if(type == "GET"):
-            print('Sending GET request to snipeit', url)
-            return requests.get(self.url + url, headers = self.headers, params = params)
-        elif(type == "POST"):
-            print('Sending POST request to snipeit', url)
-            return requests.post(self.url + url, headers = self.headers, json = json)
-        elif(type == "PATCH"):
-            print('Sending PATCH request to snipeit', url)
-            return requests.patch(self.url + url, headers = self.headers, json = json)
-        elif(type == "DELETE"):
-            print('Sending DELETE request to snipeit', url)
-            return requests.delete(self.url + url, headers = self.headers)
-        else:
-            print(Fore.RED+'Unknown request type'+Style.RESET_ALL)
-            return None
-
-    def getImageForModel(self, modelNumber):
-        if self.apple_image_check == True:
-
-            url = "https://img.appledb.dev/device@512/" + modelNumber + "/0.png"
-            print("Get image from URL", url)
             try:
-                response = requests.get(url)
-                response.raise_for_status()
-                base64encoded = base64.b64encode(response.content).decode("utf8")
-                fullImageSring = "data:image/png;name=0.png;base64,"+ base64encoded;
-                return fullImageSring;
-            
-                
-            except requests.exceptions.HTTPError as err:
-                print(Fore.RED + "Error getting image from apple db", err, Style.RESET_ALL)
-                return False
-        else:
+                self.request_count += 1
+                print(f'Sending {type} request to Snipe-IT: {url}')
+
+                if type == "GET":
+                    response = requests.get(self.url + url, headers=self.headers, params=params)
+                elif type == "POST":
+                    response = requests.post(self.url + url, headers=self.headers, json=json)
+                elif type == "PATCH":
+                    response = requests.patch(self.url + url, headers=self.headers, json=json)
+                elif type == "DELETE":
+                    response = requests.delete(self.url + url, headers=self.headers)
+                else:
+                    print(Fore.RED + 'Unknown request type' + Style.RESET_ALL)
+                    return None
+
+                if response.status_code == 429:
+                    print(Fore.YELLOW + f"Rate limited by server (429). Waiting {retry_delay} seconds before retrying..." + Style.RESET_ALL)
+                    time.sleep(retry_delay)
+                    continue
+
+                if response.status_code >= 500:
+                    print(Fore.RED + f"Server error {response.status_code}. Retrying in {retry_delay} seconds..." + Style.RESET_ALL)
+                    time.sleep(retry_delay)
+                    self.request_count = 0
+                    continue
+
+                return response
+
+            except requests.RequestException as e:
+                print(Fore.RED + f"Request failed: {e}. Retrying in {retry_delay} seconds..." + Style.RESET_ALL)
+                time.sleep(retry_delay)
+
+        print(Fore.RED + f"Failed to complete request after {max_retries} attempts: {url}" + Style.RESET_ALL)
+        return None
+
+
+    def getImageForModel(self, model_number):
+        if not self.apple_image_check:
             print("Image checking is disabled.")
             return False
+
+        print(f"Trying to look up model info from AppleDB: {model_number}")
+        try:
+            response = requests.get("https://api.appledb.dev/device/main.json")
+            response.raise_for_status()
+            devices = response.json()
+
+            for device in devices:
+                identifiers = device.get("identifier", [])
+                device_maps = device.get("deviceMap", [])
+
+                if model_number in device_maps or model_number in identifiers:
+                    device_key = device.get("key", model_number)
+                    colors = device.get("colors", [])
+                    color = colors[0]["key"] if colors and isinstance(colors[0], dict) and "key" in colors[0] else "Silver"
+
+                    image_url = f"https://img.appledb.dev/device@256/{device_key}/{color}.png"
+                    print(f"Found match. Trying image URL: {image_url}")
+
+                    img_response = requests.get(image_url)
+                    img_response.raise_for_status()
+
+                    base64encoded = base64.b64encode(img_response.content).decode("utf8")
+                    full_image_string = "data:image/png;name=image.png;base64," + base64encoded
+                    return full_image_string
+
+            print(f"No matching identifier or deviceMap found for {model_number}")
+
+        except requests.exceptions.RequestException as e:
+            print(Fore.RED + f"Error getting image from AppleDB: {e}" + Style.RESET_ALL)
+        except Exception as e:
+            print(Fore.RED + f"Unexpected error during AppleDB lookup: {e}" + Style.RESET_ALL)
+
+        return False
+
+
+
+    def setImageForModel(self, model_id, image_bytes):
+        """
+        Uploads an image to a model in Snipe-IT.
+
+        :param model_id: ID of the model in Snipe-IT
+        :param image_bytes: Raw image bytes (from requests.get().content)
+        """
+        url = f"{self.url}/models/{model_id}"
+        headers = {
+            "Authorization": f"Bearer {self._snipetoken}"
+        }
+        files = {
+            "image": ("image.png", image_bytes, "image/png")
+        }
+
+        try:
+            response = requests.post(url, headers=headers, files=files)
+            response.raise_for_status()
+            print(Fore.GREEN + f"Successfully uploaded image for model ID {model_id}" + Style.RESET_ALL)
+            return response
+        except requests.RequestException as e:
+            print(Fore.RED + f"Failed to upload image to model {model_id}: {e}" + Style.RESET_ALL)
+            return None
+
+
+
+
         
 
 #if __name__ == "__main__":

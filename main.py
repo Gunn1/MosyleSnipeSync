@@ -9,6 +9,18 @@ from mosyle import Mosyle
 from snipe import Snipe
 from colorama import Fore
 from colorama import Style
+import os
+from dotenv import load_dotenv
+
+# Load the .env file
+load_dotenv()
+
+# Access the environment variables
+mosyle_url = os.getenv("url")
+mosyle_token = os.getenv("token")
+mosyle_user = os.getenv("user")
+mosyle_password = os.getenv("password")
+
 
 # Converts datetim/e to timestamp for Mosyle
 ts = datetime.datetime.now().timestamp() - 200
@@ -35,9 +47,9 @@ snipe_rate_limit = int(config['snipe-it']['rate_limit'])
 apple_image_check = config['snipe-it'].getboolean('apple_image_check')
 
 
-
+print(mosyle_token)
 # Set the token for the Mosyle Api
-mosyle = Mosyle(config['mosyle']['token'], config['mosyle']['url'], config['mosyle']['user'], config['mosyle']['password'])
+mosyle = Mosyle(mosyle_token,mosyle_user, mosyle_password, mosyle_url)
 
 # Set the call type for Mosyle
 calltype = config['mosyle']['calltype']
@@ -49,16 +61,35 @@ for deviceType in deviceTypes:
     # Get the list of devices from Mosyle based on the deviceType and call type
 
     if calltype == "timestamp":
-        mosyle_response = mosyle.listTimestamp(ts, ts, deviceType).json()
+        mosyle_response = mosyle.listTimestamp(ts, ts, deviceType)
     else:
-        mosyle_response = mosyle.list(deviceType).json()
+        all_devices = []
+        page = 1
+
+        while True:
+            response = mosyle.list(deviceType, page=page)
+            devices = response.get('response', {}).get('devices', [])
+
+            if not devices:
+                break
+
+            all_devices.extend(devices)
+            page += 1
+
+        mosyle_response = {
+            "status": "OK",
+            "response": {
+                "devices": all_devices
+            }
+        }
+
     
-    #print(mosyle_response)
+    print(mosyle_response)
     if 'status' in mosyle_response:
         if mosyle_response['status'] != "OK":
             print('There was an issue with the Mosyle API. Stopping.', mosyle_response['message'])
             exit();
-    if 'status' in mosyle_response['response'][0]:
+    if 'status' in mosyle_response.get('status'):
         print('There was an issue with the Mosyle API. Stopping script.')
         print(mosyle_response['response'][0]['info'])
         exit()
@@ -72,7 +103,7 @@ for deviceType in deviceTypes:
 
     print('Looping through Mosyle Hardware List')
     # Return Mosyle hardware and search them in snipe
-    for sn in mosyle_response['response'][0]['devices']:
+    for sn in mosyle_response.get('response').get('devices',[]):
         print('Sarting for Mosyle Device ', sn['device_name'])
         if sn['serial_number'] == None:
             print('There is no serial number here. It must be user enrolled?')
@@ -122,20 +153,19 @@ for deviceType in deviceTypes:
         devicePayload = snipe.buildPayloadFromMosyle(sn);
         
         # If asset doesnt exist create and assign it
-        if asset['total'] == 0:
-            asset = snipe.createAsset(model, devicePayload).json()
+        if asset.get('total', 0) == 0:
+            asset = snipe.createAsset(model, devicePayload)
             if mosyle_user != None:
                 print('Assigning asset to SnipIT user based on Mosyle Assignment')
                 snipe.assignAsset(mosyle_user, asset['payload']['id'])
                 continue
 
         # Update existing Devices              
-        print(asset)
-        if asset['total'] == 1:
+        if asset.get('total') == 1 and asset.get('rows', None) != None:
             #f"{x:.2f}"
             print('Asset ', sn['serial_number'],' already exists in SnipeIt. Update it.')
             print(asset['rows'][0]['name'])
-            snipe.updateAsset(asset['rows'][0]['id'], devicePayload)
+            snipe.updateAsset(asset['rows'][0]['id'], devicePayload, model)
 
         # Check the asset assignement state
         if mosyle_user != None:
@@ -158,8 +188,8 @@ for deviceType in deviceTypes:
         print("Checking to see if Mosyle needs an updated asset tag")
         #if there is no asset tag on mosyle, add the snipeit asset tag
         if(sn['asset_tag'] == None or sn['asset_tag'] == "" or sn['asset_tag'] != asset['rows'][0]['asset_tag']):
-            print('update the mosyle asset tag of device ', sn['serial_number'], 'to ', asset['rows'][0]['asset_tag'])
-            mosyle.setAssetTag(sn['serial_number'], asset['rows'][0]['asset_tag'])
+            print('update the mosyle asset tag of device ', sn.get('serial_number'), 'to ', asset.get('rows',[])[0].get('asset_tag',""))
+            mosyle.setAssetTag(sn['serial_number'], asset.get('rows',[])[0].get('asset_tag',""))
         else:
             print('Mosyle already has an assest tag of: ', sn['asset_tag'])
     
