@@ -100,21 +100,30 @@ class Snipe:
 
     def assignAsset(self, user, asset_id):
         print('Assigning asset '+str(asset_id)+' to user '+user)
-        
-        payload = {
-            "search": user,
-            "limit": 2
-        }
-        response = self.snipeItRequest("GET", "/users", params = payload).json()
+        email_to_match = user.lower()
 
+        payload = {
+            "search": email_to_match,
+            "limit": 10  # Increase in case multiple matches exist
+        }
+        response = self.snipeItRequest("GET", "/users", params=payload).json()
+        print(f"{response} Payload: {payload}")
         if response['total'] == 0:
             return
 
+        # Find exact email match
+        user_row = next((row for row in response['rows'] if row['email'].lower() == email_to_match), None)
+
+        if not user_row:
+            print(f"No exact match found for {email_to_match}")
+            return
+
         payload = {
-            "assigned_user": response['rows'][0]['id'],
+            "assigned_user": user_row['id'],
             "checkout_to_type": "user"
         }
-        return self.snipeItRequest("POST", "/hardware/" + str(asset_id) + "/checkout", json = payload)
+        return self.snipeItRequest("POST", f"/hardware/{asset_id}/checkout", json=payload)
+
 
     def unasigneAsset(self, asset_id):
         print('Unassigning asset '+str(asset_id))

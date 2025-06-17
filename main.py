@@ -11,6 +11,11 @@ from colorama import Fore
 from colorama import Style
 import os
 from dotenv import load_dotenv
+from rich.progress import Progress
+from rich.console import Console
+from rich.style import Style
+
+console = Console()
 
 # Load the .env file
 load_dotenv()
@@ -21,182 +26,109 @@ mosyle_token = os.getenv("token")
 mosyle_user = os.getenv("user")
 mosyle_password = os.getenv("password")
 
-
-# Converts datetim/e to timestamp for Mosyle
+# Converts datetime to timestamp for Mosyle
 ts = datetime.datetime.now().timestamp() - 200
 
 # Set some Variables from the settings.conf:
 config = configparser.ConfigParser()
 config.read('settings.ini')
 
-# This is the address, cname, or FQDN for your snipe-it instance.
 snipe_url = config['snipe-it']['url']
 apiKey = config['snipe-it']['apiKey']
 defaultStatus = config['snipe-it']['defaultStatus']
 apple_manufacturer_id = config['snipe-it']['manufacturer_id']
 macos_category_id = config['snipe-it']['macos_category_id']
-ios_category_id =  config['snipe-it']['ios_category_id']
-tvos_category_id =  config['snipe-it']['tvos_category_id']
+ios_category_id = config['snipe-it']['ios_category_id']
+tvos_category_id = config['snipe-it']['tvos_category_id']
 macos_fieldset_id = config['snipe-it']['macos_fieldset_id']
 ios_fieldset_id = config['snipe-it']['ios_fieldset_id']
 tvos_fieldset_id = config['snipe-it']['tvos_fieldset_id']
 deviceTypes = config['mosyle']['deviceTypes'].split(',')
 
 snipe_rate_limit = int(config['snipe-it']['rate_limit'])
-
 apple_image_check = config['snipe-it'].getboolean('apple_image_check')
 
-
 print(mosyle_token)
-# Set the token for the Mosyle Api
-mosyle = Mosyle(mosyle_token,mosyle_user, mosyle_password, mosyle_url)
-
-# Set the call type for Mosyle
+mosyle = Mosyle(mosyle_token, mosyle_user, mosyle_password, mosyle_url)
 calltype = config['mosyle']['calltype']
+snipe = Snipe(apiKey, snipe_url, apple_manufacturer_id, macos_category_id, ios_category_id, tvos_category_id, snipe_rate_limit, macos_fieldset_id, ios_fieldset_id, tvos_fieldset_id, apple_image_check)
 
-#setup the snipe-it api
-snipe = Snipe(apiKey,snipe_url,apple_manufacturer_id,macos_category_id,ios_category_id,tvos_category_id,snipe_rate_limit, macos_fieldset_id, ios_fieldset_id, tvos_fieldset_id,apple_image_check)
+total_devices_processed = 0
 
 for deviceType in deviceTypes:
-    # Get the list of devices from Mosyle based on the deviceType and call type
-
     if calltype == "timestamp":
         mosyle_response = mosyle.listTimestamp(ts, ts, deviceType)
     else:
         all_devices = []
         page = 1
-
         while True:
             response = mosyle.list(deviceType, page=page)
             devices = response.get('response', {}).get('devices', [])
-
             if not devices:
                 break
-
             all_devices.extend(devices)
             page += 1
+        mosyle_response = {"status": "OK", "response": {"devices": all_devices}}
 
-        mosyle_response = {
-            "status": "OK",
-            "response": {
-                "devices": all_devices
-            }
-        }
-
-    
-    print(mosyle_response)
-    if 'status' in mosyle_response:
-        if mosyle_response['status'] != "OK":
-            print('There was an issue with the Mosyle API. Stopping.', mosyle_response['message'])
-            exit();
-    if 'status' in mosyle_response.get('status'):
-        print('There was an issue with the Mosyle API. Stopping script.')
-        print(mosyle_response['response'][0]['info'])
+    if mosyle_response.get('status') != "OK":
+        print('There was an issue with the Mosyle API. Stopping.', mosyle_response.get('message'))
         exit()
 
-    
+    devices = mosyle_response['response'].get('devices', [])
+    device_count = len(devices)
 
+    with Progress() as progress:
+        task = progress.add_task(f"[green]Processing {deviceType} devices...", total=device_count)
 
-
-    print('starting snipe')
-
-
-    print('Looping through Mosyle Hardware List')
-    # Return Mosyle hardware and search them in snipe
-    for sn in mosyle_response.get('response').get('devices',[]):
-        print('Sarting for Mosyle Device ', sn['device_name'])
-        if sn['serial_number'] == None:
-            print('There is no serial number here. It must be user enrolled?')
-            #print(sn)
-            continue
-        else:
-            print('Device has serial number! ',str(sn['serial_number']))
-        
-        print('Checking snipe for Mosyle device by serial number: '+str(sn['serial_number']))
-        asset = snipe.listHardware(sn['serial_number']).json()
-        
-        #check to see if Device model already exists on snipe
-            
-        print("Checking to see if device model already exist on SnipeIt:", sn['device_model'])
-        model = snipe.searchModel(sn['device_model']).json()
-        print("Model:", model)
-        # Create the asset model if is not exist
-        if model['total'] == 0:
-            print('Model does not exist in Snipe. Need to make it.')
-            if sn['os'] == "mac":
-                print('Making a new Mac model', sn['device_model'])
-                model = snipe.createModel(sn['device_model']).json()
-                model = model['payload']['id']
-            if sn['os'] == "ios":
-                print('Making a new ios model', sn['device_model'])
-                model = snipe.createMobileModel(sn['device_model']).json()
-                model = model['payload']['id']
-            if sn['os'] == "tvos":
-                print('Making New Apple TV Model', sn['device_model'])
-                model = snipe.createAppleTvModel(sn['device_model']).json()
-                model = model['payload']['id']
-
-        else:
-            print('Model already exists in SnipeIt!')
-            model = model['rows'][0]['id']
-
-        
-        if sn['CurrentConsoleManagedUser'] != None and "userid" in sn:
-            mosyle_user = sn['userid']
-
-        else:
-            print('this device is not currently assigned. Dont try to assign it later');
-            mosyle_user = None
-            
-
-        #Create payload translating Mosyle to SnipeIt
-        devicePayload = snipe.buildPayloadFromMosyle(sn);
-        
-        # If asset doesnt exist create and assign it
-        if asset.get('total', 0) == 0:
-            asset = snipe.createAsset(model, devicePayload)
-            if mosyle_user != None:
-                print('Assigning asset to SnipIT user based on Mosyle Assignment')
-                snipe.assignAsset(mosyle_user, asset['payload']['id'])
+        for sn in devices:
+            if sn['serial_number'] is None:
+                progress.console.print("[yellow]Skipping device with no serial number.")
+                progress.advance(task)
                 continue
 
-        # Update existing Devices              
-        if asset.get('total') == 1 and asset.get('rows', None) != None:
-            #f"{x:.2f}"
-            print('Asset ', sn['serial_number'],' already exists in SnipeIt. Update it.')
-            print(asset['rows'][0]['name'])
-            snipe.updateAsset(asset['rows'][0]['id'], devicePayload, model)
-
-        # Check the asset assignement state
-        if mosyle_user != None:
-            if asset['rows'][0]['assigned_to'] == None and sn['userid'] != None:
-                    snipe.assignAsset(sn['userid'], asset['rows'][0]['id'])
-                    #continue
-
-            elif sn['userid'] == None:
-                snipe.unasigneAsset(asset['rows'][0]['id'])
-                #continue
-
-            elif asset['rows'][0]['assigned_to']['username'] == sn['userid']:
-                print('nothing to see here')
-            elif asset['rows'][0]['assigned_to']['username'] != sn['userid']:
-                snipe.unasigneAsset(asset['rows'][0]['id'])
-                snipe.assignAsset(sn['userid'], asset['rows'][0]['id'])
+            asset = snipe.listHardware(sn['serial_number']).json()
+            model = snipe.searchModel(sn['device_model']).json()
+            if model['total'] == 0:
+                if sn['os'] == "mac":
+                    model = snipe.createModel(sn['device_model']).json()['payload']['id']
+                elif sn['os'] == "ios":
+                    model = snipe.createMobileModel(sn['device_model']).json()['payload']['id']
+                elif sn['os'] == "tvos":
+                    model = snipe.createAppleTvModel(sn['device_model']).json()['payload']['id']
             else:
-                print('no assignement actions')
-        
-        # Safely get asset tag from Snipe asset
-        asset_tag = None
-        if 'rows' in asset and isinstance(asset['rows'], list) and len(asset['rows']) > 0:
-            asset_tag = asset['rows'][0].get('asset_tag')
+                model = model['rows'][0]['id']
+            mosyle_user = sn.get('useremail') if sn.get('CurrentConsoleManagedUser') and 'useremail' in sn else None
+            devicePayload = snipe.buildPayloadFromMosyle(sn)
 
-        # Compare and update if needed
-        if not sn.get('asset_tag') or sn['asset_tag'] != asset_tag:
-            print(f"Update the Mosyle asset tag of device {sn.get('serial_number')} to {asset_tag}")
-            if asset_tag:
-                mosyle.setAssetTag(sn['serial_number'], asset_tag)
-        else:
-            print(f"Mosyle already has an asset tag of: {sn['asset_tag']}")
-    
-    print('Finished with OS: ', deviceType)
-    print('')
+            if asset.get('total', 0) == 0:
+                asset = snipe.createAsset(model, devicePayload)
+                if mosyle_user:
+                    snipe.assignAsset(mosyle_user, asset['payload']['id'])
+                    progress.advance(task)
+                    total_devices_processed += 1
+                    continue
+
+            if asset.get('total') == 1 and asset.get('rows'):
+                snipe.updateAsset(asset['rows'][0]['id'], devicePayload, model)
+
+            if mosyle_user:
+                assigned = asset['rows'][0]['assigned_to']
+                if assigned is None and sn.get('useremail'):
+                    snipe.assignAsset(sn['useremail'], asset['rows'][0]['id'])
+                elif sn.get('useremail') is None:
+                    snipe.unasigneAsset(asset['rows'][0]['id'])
+                elif assigned and assigned['username'] != sn['useremail']:
+                    snipe.unasigneAsset(asset['rows'][0]['id'])
+                    snipe.assignAsset(sn['useremail'], asset['rows'][0]['id'])
+
+            asset_tag = asset['rows'][0].get('asset_tag') if asset.get('rows') else None
+            if not sn.get('asset_tag') or sn['asset_tag'] != asset_tag:
+                if asset_tag:
+                    mosyle.setAssetTag(sn['serial_number'], asset_tag)
+
+            total_devices_processed += 1
+            progress.advance(task)
+
+    console.print(f"[bold cyan]\n🎉 Finished {deviceType}: {total_devices_processed} total devices processed\n")
+
+console.print(f"[bold green]✅ Script completed. Total devices processed: {total_devices_processed}")
