@@ -1,0 +1,22 @@
+[Unit]
+Description=MosyleSnipeSync Timer - Run every 1 hour
+Documentation=https://github.com/your-org/MosyleSnipeSync
+Requires=mosyle-snipe-sync.service
+
+[Timer]
+# Run every 1 hour
+OnBootSec=10min
+OnUnitActiveSec=1h
+
+# Optional: Run at a specific time (e.g., 2 AM every day)
+# Uncomment the line below and comment out OnUnitActiveSec to use this instead
+# OnCalendar=02:00
+
+# If a run is missed, run it when the system comes back online
+Persistent=true
+
+# Allow randomization to prevent thundering herd (randomize up to 5 minutes)
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target
