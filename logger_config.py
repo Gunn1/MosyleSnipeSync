@@ -39,10 +39,11 @@ def setup_logging(log_dir="logs", log_level="INFO"):
     console_handler = logging.StreamHandler()
     console_handler.setLevel(getattr(logging, log_level))
 
-    # Formatter with timestamp
+    # Formatter with timestamp (using {}-style to safely handle % characters in messages)
     formatter = logging.Formatter(
-        "[%(asctime)s] %(levelname)-8s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
+        "[{asctime}] {levelname:<8} {message}",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        style="{"
     )
     file_handler.setFormatter(formatter)
     console_handler.setFormatter(formatter)
