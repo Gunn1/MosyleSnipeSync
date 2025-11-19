@@ -16,7 +16,7 @@ The tool pulls device information from Mosyle (Mac, iOS, tvOS), creates/updates 
 
 **Main Entry Point** (`main.py:1-135`)
 - Orchestrates the sync workflow for each device type (mac, ios, tvos)
-- Loads configuration from `settings.ini` and environment variables (`.env`)
+- Loads configuration from `settings.ini`
 - For each device type: fetches devices from Mosyle → processes each device → updates Snipe-IT
 - Uses `rich` library for progress bar visualization
 
@@ -46,9 +46,8 @@ The tool pulls device information from Mosyle (Mac, iOS, tvOS), creates/updates 
 
 ### Data Flow
 
-1. Environment variables (`url`, `token`, `user`, `password`) loaded from `.env`
-2. Configuration parameters loaded from `settings.ini`
-3. For each device type in `settings.ini` → `mosyle.deviceTypes`:
+1. Configuration parameters (including Mosyle credentials) loaded from `settings.ini`
+2. For each device type in `settings.ini` → `mosyle.deviceTypes`:
    - Query Mosyle for devices (paginated if using "all" calltype)
    - For each Mosyle device:
      - Search Snipe-IT by serial number
@@ -78,16 +77,7 @@ pip3 install -r requirements.txt
 
 # Copy and configure settings
 cp settings_example.ini settings.ini
-# Edit settings.ini with your Mosyle/Snipe-IT details
-
-# Create .env for Mosyle credentials
-# Must contain: url, token, user, password
-cat > .env << EOF
-url=https://businessapi.mosyle.com/v1
-token=your_token
-user=admin_email@example.com
-password=admin_password
-EOF
+# Edit settings.ini with your Mosyle and Snipe-IT credentials and configuration
 ```
 
 ### Running
@@ -134,15 +124,7 @@ The recommended production approach uses Linux systemd with a timer for reliable
 ```bash
 # 1. Prepare settings and credentials
 cp settings_example.ini ~/mosyle-config/settings.ini
-# Edit ~/mosyle-config/settings.ini with your credentials
-
-# Create .env with Mosyle credentials (only needed if not using systemd)
-cat > ~/.env << EOF
-url=https://businessapi.mosyle.com/v1
-token=your_token
-user=admin_email@example.com
-password=admin_password
-EOF
+# Edit ~/mosyle-config/settings.ini with your Mosyle and Snipe-IT credentials
 
 # 2. Run installation script as root
 sudo bash install_systemd.sh ~/mosyle-config/settings.ini
@@ -251,7 +233,7 @@ journalctl -u mosyle-snipe-sync.service | grep "ERROR"
 
 ### Debugging API Issues
 - Enable debug output: Check colorama colored print statements in code
-- Mosyle auth fails: Verify admin credentials in `.env` and that admin has API access
+- Mosyle auth fails: Verify admin credentials in `settings.ini` [mosyle] section and that admin has API access
 - Snipe-IT rate limit hit: Script automatically waits 60s; check if genuine API usage is exceeding limit
 - Model/asset creation fails: Verify category IDs and manufacturer ID exist in Snipe-IT
 
@@ -269,7 +251,8 @@ journalctl -u mosyle-snipe-sync.service | grep "ERROR"
 
 ## Security Considerations
 
-- Store Mosyle credentials in `.env`, never commit credentials
+- Store Mosyle and Snipe-IT credentials in `settings.ini`, never commit credentials to version control
+- Ensure `settings.ini` has restrictive file permissions (e.g., `chmod 600 settings.ini`)
 - Snipe-IT API key should be restricted to read/write asset and model operations
 - Rate limiting is built-in but ensure your Snipe-IT instance is properly configured
 - AppleDB image fetching is over HTTPS but integrates external image data
@@ -325,6 +308,5 @@ sudo journalctl -u mosyle-snipe-sync.service -n 50 | grep "Synchronization run c
 - **colorama**: Terminal color output
 - **requests**: HTTP library for API calls
 - **rich**: Progress bars and console formatting
-- **python-dotenv**: Load environment variables from `.env`
 - **configparser**: Built-in, parse `settings.ini`
 - **logging**: Built-in, structured logging with rotation

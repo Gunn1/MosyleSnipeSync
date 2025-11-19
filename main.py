@@ -11,7 +11,6 @@ import time
 import sys
 import os
 from pathlib import Path
-from dotenv import load_dotenv
 from rich.progress import Progress
 from rich.console import Console
 
@@ -21,22 +20,8 @@ from logger_config import setup_logging, get_logger
 
 
 def load_configuration(config_file='settings.ini'):
-    """Load configuration from settings.ini and environment variables."""
+    """Load configuration from settings.ini."""
     logger = get_logger()
-
-    # Load environment variables from .env file
-    load_dotenv()
-
-    # Access environment variables for Mosyle
-    mosyle_url = os.getenv("url")
-    mosyle_token = os.getenv("token")
-    mosyle_user = os.getenv("user")
-    mosyle_password = os.getenv("password")
-
-    # Verify required environment variables
-    if not all([mosyle_url, mosyle_token, mosyle_user, mosyle_password]):
-        logger.error("Missing required environment variables in .env file")
-        raise ValueError("Missing Mosyle credentials in .env")
 
     # Load configuration file
     if not Path(config_file).exists():
@@ -45,6 +30,23 @@ def load_configuration(config_file='settings.ini'):
 
     config = configparser.ConfigParser()
     config.read(config_file)
+
+    # Extract Mosyle config
+    try:
+        mosyle_url = config['mosyle']['url']
+        mosyle_token = config['mosyle']['token']
+        mosyle_user = config['mosyle']['user']
+        mosyle_password = config['mosyle']['password']
+        deviceTypes = config['mosyle']['deviceTypes'].split(',')
+        calltype = config['mosyle'].get('calltype', 'all')
+    except KeyError as e:
+        logger.error(f"Missing required Mosyle configuration: {e}")
+        raise ValueError(f"Missing required Mosyle configuration: {e}")
+
+    # Verify required Mosyle credentials
+    if not all([mosyle_url, mosyle_token, mosyle_user, mosyle_password]):
+        logger.error("Missing required Mosyle credentials in settings.ini")
+        raise ValueError("Missing Mosyle credentials in settings.ini [mosyle] section")
 
     # Extract Snipe-IT config
     try:
@@ -61,14 +63,6 @@ def load_configuration(config_file='settings.ini'):
         apple_image_check = config['snipe-it'].getboolean('apple_image_check')
     except KeyError as e:
         logger.error(f"Missing required configuration key: {e}")
-        raise
-
-    # Extract Mosyle config
-    try:
-        deviceTypes = config['mosyle']['deviceTypes'].split(',')
-        calltype = config['mosyle'].get('calltype', 'all')
-    except KeyError as e:
-        logger.error(f"Missing required Mosyle configuration: {e}")
         raise
 
     logger.info("Configuration loaded successfully")
