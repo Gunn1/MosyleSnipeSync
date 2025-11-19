@@ -28,7 +28,7 @@ def load_configuration(config_file='settings.ini'):
         logger.error(f"Configuration file not found: {config_file}")
         raise FileNotFoundError(f"Configuration file not found: {config_file}")
 
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(interpolation=None)
     config.read(config_file)
 
     # Extract Mosyle config
