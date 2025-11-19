@@ -1,0 +1,20 @@
+[Unit]
+Description=MosyleSnipeSync - Synchronize devices from Mosyle to Snipe-IT
+Documentation=https://github.com/your-org/MosyleSnipeSync
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=mosyle-snipe
+Group=mosyle-snipe
+WorkingDirectory=/opt/mosyle-snipe-sync
+ExecStart=/opt/mosyle-snipe-sync/venv/bin/python3 /opt/mosyle-snipe-sync/main.py --config /etc/mosyle-snipe-sync/settings.ini --log-dir /var/log/mosyle-snipe-sync
+Environment="PYTHONUNBUFFERED=1"
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mosyle-snipe-sync
+
+# Prevent concurrent runs
+Type=oneshot
+KillMode=process
